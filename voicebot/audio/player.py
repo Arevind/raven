@@ -46,7 +46,13 @@ class AudioPlayer:
 
         if self._closed:
             return
-        self._queue.put(mono, timeout=3)
+        while not self._closed:
+            try:
+                # Backpressure avoids intermittent queue.Full failures on long/fast turns.
+                self._queue.put(mono, timeout=0.25)
+                return
+            except queue.Full:
+                continue
 
     def wait_until_idle(self) -> None:
         while not self._queue.empty() or self._current_pos < self._current.size:
@@ -92,4 +98,3 @@ class AudioPlayer:
                 self._queue.task_done()
 
         outdata[:, 0] = out
-

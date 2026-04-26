@@ -1,0 +1,44 @@
+services:
+  llama-cpp:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    container_name: voicebot-llama-cpp
+    command:
+      - -m
+      - /models/${LLAMA_CPP_MODEL_FILE:-gemma-3n-E2B-it-Q4_K_M.gguf}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "8080"
+      - -c
+      - "${LLAMA_CPP_CTX_SIZE:-4096}"
+      - -n
+      - "${LLAMA_CPP_MAX_TOKENS:-1024}"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./model:/models:ro
+    restart: unless-stopped
+
+  voicebot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      llama-cpp:
+        condition: service_started
+    environment:
+      LLAMA_CPP_URL: http://llama-cpp:8080/v1/chat/completions
+      LLAMA_CPP_MODEL: ${LLAMA_CPP_MODEL:?LLAMA_CPP_MODEL must be set in .env}
+      LLAMA_CPP_DISABLE_THINK: "1"
+      VOICEBOT_AUDIO_MODE: ${VOICEBOT_AUDIO_MODE:-live}
+      HF_HOME: /cache/huggingface
+    ports:
+      - "7860:7860"
+    volumes:
+      - huggingface-cache:/cache/huggingface
+    stdin_open: true
+    tty: true
+    restart: "no"
+
+volumes:
+  huggingface-cache:

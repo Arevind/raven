@@ -5,9 +5,9 @@ import asyncio
 import sys
 from typing import Callable
 
-from voicebot.audio import AudioPlayer
+from voicebot.audio import AudioPlayer, NullAudioPlayer
 from voicebot.config import VoicebotSettings
-from voicebot.providers import KokoroTTSProvider, OllamaChatClient
+from voicebot.providers import KokoroTTSProvider, LlamaCppChatClient
 from voicebot.runtime import VoicebotEngine
 from voicebot.text import SentenceChunker
 
@@ -44,20 +44,28 @@ async def _interactive_loop(settings: VoicebotSettings) -> None:
     if hasattr(sys.stderr, "reconfigure"):
         sys.stderr.reconfigure(encoding="utf-8", errors="replace")
 
-    chat_client = OllamaChatClient(
-        model=settings.ollama_model,
-        url=settings.ollama_url,
+    chat_client = LlamaCppChatClient(
+        model=settings.llama_cpp_model,
+        url=settings.llama_cpp_url,
         timeout_seconds=settings.http_timeout_seconds,
+        disable_think_mode=settings.llama_cpp_disable_think,
     )
     tts_provider = KokoroTTSProvider(
         lang_code=settings.kokoro_lang,
         voice=settings.kokoro_voice,
         repo_id=settings.kokoro_repo_id,
     )
-    audio_sink = AudioPlayer(
-        sample_rate=settings.sample_rate,
-        queue_maxsize=settings.audio_queue_maxsize,
-    )
+    if settings.audio_mode == "silent":
+        audio_sink = NullAudioPlayer()
+    else:
+        try:
+            audio_sink = AudioPlayer(
+                sample_rate=settings.sample_rate,
+                queue_maxsize=settings.audio_queue_maxsize,
+            )
+        except Exception as exc:
+            print(f"[Warning] Audio output unavailable ({exc}). Falling back to silent mode.")
+            audio_sink = NullAudioPlayer()
     engine = VoicebotEngine(
         chat_client=chat_client,
         tts_provider=tts_provider,
@@ -66,7 +74,7 @@ async def _interactive_loop(settings: VoicebotSettings) -> None:
     )
 
     print(
-        f"CLI Chatbot started (model: {settings.ollama_model}, "
+        f"CLI Chatbot started (model: {settings.llama_cpp_model}, "
         f"tts_provider: kokoro, voice: {settings.kokoro_voice}, "
         f"langgraph: {'on' if engine.orchestrator.using_langgraph else 'fallback'})"
     )
@@ -113,4 +121,3 @@ def run() -> None:
 
 if __name__ == "__main__":
     run()
-

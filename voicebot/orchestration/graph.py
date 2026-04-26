@@ -4,7 +4,7 @@ import asyncio
 from time import perf_counter
 from typing import Any, Awaitable, Callable, TypedDict
 
-from voicebot.domain.interfaces import AudioSink, ChatClient, Chunker, TTSProvider
+from voicebot.domain.interfaces import AudioSink, ChatClient, Chunker, RuntimeObserver, TTSProvider
 from voicebot.domain.models import ChatTurn, SessionState
 
 try:
@@ -25,11 +25,18 @@ class GraphState(TypedDict):
     on_delta: OnDelta | None
     assistant_text: str
     tts_text_chunks: list[str]
-    tts_queue: asyncio.Queue[str | None]
+    tts_queue: asyncio.Queue[tuple[int, str] | None]
     synthesis_task: asyncio.Task[None] | None
     first_token_at: float | None
     first_audio_at: float | None
     started_at: float
+    llm_completed_at: float | None
+    playback_completed_at: float | None
+    tts_generation_total_ms: float
+    tts_chunk_count: int
+    audio_chunks_enqueued: int
+    audio_samples_enqueued: int
+    next_tts_chunk_index: int
 
 
 class ConversationOrchestrator:
@@ -38,10 +45,12 @@ class ConversationOrchestrator:
         chat_client: ChatClient,
         tts_provider: TTSProvider,
         audio_sink: AudioSink,
+        observer: RuntimeObserver | None = None,
     ) -> None:
         self.chat_client = chat_client
         self.tts_provider = tts_provider
         self.audio_sink = audio_sink
+        self.observer = observer
         self.using_langgraph = LANGGRAPH_AVAILABLE
         self._compiled = self._build_graph() if LANGGRAPH_AVAILABLE else None
 
@@ -89,19 +98,50 @@ class ConversationOrchestrator:
         state["synthesis_task"] = None
         state["first_token_at"] = None
         state["first_audio_at"] = None
+        state["llm_completed_at"] = None
+        state["playback_completed_at"] = None
+        state["tts_generation_total_ms"] = 0.0
+        state["tts_chunk_count"] = 0
+        state["audio_chunks_enqueued"] = 0
+        state["audio_samples_enqueued"] = 0
+        state["next_tts_chunk_index"] = 0
         return state
 
     async def _synthesize(self, state: GraphState) -> GraphState:
         async def _worker() -> None:
             while True:
-                text_chunk = await state["tts_queue"].get()
+                chunk_payload = await state["tts_queue"].get()
                 try:
-                    if text_chunk is None:
+                    if chunk_payload is None:
                         return
+                    chunk_index, text_chunk = chunk_payload
+                    synth_started_at = perf_counter()
+                    if self.observer is not None:
+                        self.observer.record("tts_started", chunk_index=chunk_index, text=text_chunk)
+                    total_samples = 0
                     async for audio_chunk in self.tts_provider.synthesize_stream(text_chunk):
                         if state["first_audio_at"] is None:
                             state["first_audio_at"] = perf_counter()
                         self.audio_sink.enqueue(audio_chunk)
+                        samples = int(getattr(audio_chunk, "size", len(audio_chunk)))
+                        total_samples += samples
+                        state["audio_chunks_enqueued"] += 1
+                        state["audio_samples_enqueued"] += samples
+                        if self.observer is not None:
+                            self.observer.record(
+                                "audio_enqueued",
+                                chunk_index=chunk_index,
+                                audio_samples=samples,
+                            )
+                    synth_latency_ms = (perf_counter() - synth_started_at) * 1000.0
+                    state["tts_generation_total_ms"] += synth_latency_ms
+                    if self.observer is not None:
+                        self.observer.record(
+                            "tts_completed",
+                            chunk_index=chunk_index,
+                            latency_ms=synth_latency_ms,
+                            audio_samples=total_samples,
+                        )
                 finally:
                     state["tts_queue"].task_done()
 
@@ -111,28 +151,67 @@ class ConversationOrchestrator:
     async def _stream_llm(self, state: GraphState) -> GraphState:
         parts: list[str] = []
         on_delta = state.get("on_delta")
+        if self.observer is not None:
+            self.observer.record("llm_request_started", model=getattr(self.chat_client, "model", "unknown"))
         async for delta in self.chat_client.stream_reply(state["user_text"], state["session"].history):
             if state["first_token_at"] is None:
                 state["first_token_at"] = perf_counter()
+                if self.observer is not None:
+                    self.observer.record(
+                        "llm_first_token",
+                        latency_ms=(state["first_token_at"] - state["started_at"]) * 1000.0,
+                    )
             parts.append(delta)
             chunked = state["chunker"].feed(delta)
+            assistant_text = "".join(parts).strip()
+            if self.observer is not None:
+                self.observer.record("llm_delta", delta=delta, assistant_text=assistant_text)
             for piece in chunked:
                 state["tts_text_chunks"].append(piece)
-                await state["tts_queue"].put(piece)
+                chunk_index = state["next_tts_chunk_index"]
+                state["next_tts_chunk_index"] += 1
+                state["tts_chunk_count"] += 1
+                await state["tts_queue"].put((chunk_index, piece))
+                if self.observer is not None:
+                    self.observer.record(
+                        "chunk_emitted",
+                        text=piece,
+                        chunk_index=chunk_index,
+                        queue_depth=state["tts_queue"].qsize(),
+                    )
             if on_delta is not None:
                 maybe_coro = on_delta(delta)
                 if maybe_coro is not None:
                     await maybe_coro
         state["assistant_text"] = "".join(parts).strip()
+        state["llm_completed_at"] = perf_counter()
         if not state["assistant_text"]:
             raise RuntimeError("LLM returned an empty streamed response.")
+        if self.observer is not None:
+            self.observer.record(
+                "llm_completed",
+                latency_ms=(state["llm_completed_at"] - state["started_at"]) * 1000.0,
+                assistant_chars=len(state["assistant_text"]),
+            )
         return state
 
     async def _chunk_text(self, state: GraphState) -> GraphState:
         tail = state["chunker"].flush()
         if tail:
             state["tts_text_chunks"].append(tail)
-            await state["tts_queue"].put(tail)
+            chunk_index = state["next_tts_chunk_index"]
+            state["next_tts_chunk_index"] += 1
+            state["tts_chunk_count"] += 1
+            await state["tts_queue"].put((chunk_index, tail))
+            if self.observer is not None:
+                self.observer.record(
+                    "chunk_emitted",
+                    text=tail,
+                    chunk_index=chunk_index,
+                    queue_depth=state["tts_queue"].qsize(),
+                )
+        if self.observer is not None:
+            self.observer.record("chunk_flush_completed")
         await state["tts_queue"].put(None)
         return state
 
@@ -140,7 +219,16 @@ class ConversationOrchestrator:
         task = state.get("synthesis_task")
         if task is not None:
             await task
+        playback_wait_started = perf_counter()
+        if self.observer is not None:
+            self.observer.record("playback_wait_started")
         self.audio_sink.wait_until_idle()
+        state["playback_completed_at"] = perf_counter()
+        if self.observer is not None:
+            self.observer.record(
+                "playback_completed",
+                latency_ms=(state["playback_completed_at"] - playback_wait_started) * 1000.0,
+            )
         return state
 
     async def _persist_turn(self, state: GraphState) -> GraphState:

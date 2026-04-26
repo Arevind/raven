@@ -1,5 +1,4 @@
 from .kokoro_tts import KokoroTTSProvider, sanitize_for_tts
-from .ollama_client import OllamaChatClient
+from .llama_cpp_client import LlamaCppChatClient
 
-__all__ = ["OllamaChatClient", "KokoroTTSProvider", "sanitize_for_tts"]
-
+__all__ = ["LlamaCppChatClient", "KokoroTTSProvider", "sanitize_for_tts"]

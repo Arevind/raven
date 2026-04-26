@@ -29,10 +29,14 @@ class TurnMetrics:
     first_token_latency_ms: float
     first_audio_latency_ms: float
     total_turn_latency_ms: float
+    llm_stream_latency_ms: float = 0.0
+    tts_generation_latency_ms: float = 0.0
+    tts_chunks_generated: int = 0
+    audio_chunks_enqueued: int = 0
+    audio_samples_enqueued: int = 0
 
 
 @dataclass(slots=True)
 class TurnResult:
     assistant_text: str
     metrics: TurnMetrics
-

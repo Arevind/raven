@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Raven Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,600;9..144,700&family=Manrope:wght@500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/app.css">
+  </head>
+  <body>
+    <main class="stage" role="application" aria-label="Raven voice dashboard">
+      <section class="app-window">
+        <section class="dashboard-grid">
+          <section class="hero-panel">
+            <div class="hero-top">
+              <div class="brand-cluster">
+                <p class="eyebrow">Voice intelligence</p>
+                <h1 id="botName">Raven</h1>
+                <p id="statusLine" class="status-line">Raven is ready.</p>
+              </div>
+              <div class="floating-controls">
+                <button id="themeToggle" class="tool-button" type="button" title="Toggle theme" aria-label="Toggle theme">Dark</button>
+                <button id="autoplayToggle" class="tool-button" type="button" title="Toggle audio auto-play" aria-label="Toggle audio auto-play">Audio on</button>
+              </div>
+            </div>
+
+            <div class="ambient-mark" aria-hidden="true">
+              <div id="ravenAvatar" class="raven-avatar state-idle">
+                <svg viewBox="0 0 320 320" class="raven-mark" focusable="false" aria-hidden="true">
+                  <defs>
+                    <linearGradient id="rvHeadGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="#2d3f33"></stop>
+                      <stop offset="100%" stop-color="#111a14"></stop>
+                    </linearGradient>
+                    <linearGradient id="rvFeatherGrad" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <stop offset="0%" stop-color="#3f5a47"></stop>
+                      <stop offset="100%" stop-color="#1e3024"></stop>
+                    </linearGradient>
+                    <linearGradient id="rvBeakGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                      <stop offset="0%" stop-color="#f2de94"></stop>
+                      <stop offset="100%" stop-color="#cca34d"></stop>
+                    </linearGradient>
+                  </defs>
+                  <circle class="rv-halo" cx="160" cy="164" r="136"></circle>
+                  <circle class="rv-ring" cx="160" cy="164" r="118"></circle>
+                  <path class="rv-wing-left" d="M118 123 L74 142 L52 194 L81 238 L127 224 L141 176 Z"></path>
+                  <path class="rv-wing-right" d="M202 123 L246 142 L268 194 L239 238 L193 224 L179 176 Z"></path>
+                  <path class="rv-head" d="M102 92 L139 68 L181 68 L218 92 L235 136 L223 218 L181 253 L139 253 L97 218 L85 136 Z"></path>
+                  <path class="rv-face" d="M121 106 L199 106 L213 137 L203 207 L174 232 L146 232 L117 207 L107 137 Z"></path>
+                  <path class="rv-brow-left" d="M129 128 L154 120 L153 129 L131 137 Z"></path>
+                  <path class="rv-brow-right" d="M191 128 L166 120 L167 129 L189 137 Z"></path>
+                  <ellipse class="rv-eye-left" cx="141" cy="146" rx="16" ry="8"></ellipse>
+                  <ellipse class="rv-eye-right" cx="179" cy="146" rx="16" ry="8"></ellipse>
+                  <path class="rv-beak-top" d="M160 159 L198 159 L185 182 L160 187 L135 182 L122 159 Z"></path>
+                  <path class="rv-beak-bottom" d="M160 187 L183 182 L173 205 L160 210 L147 205 L137 182 Z"></path>
+                  <path class="rv-chest" d="M140 233 L180 233 L172 258 L148 258 Z"></path>
+                </svg>
+              </div>
+            </div>
+
+            <div class="voice-console">
+              <div class="console-head">
+                <div>
+                  <p class="section-kicker">Listening room</p>
+                  <h2 id="listenTitle">Raven is listening</h2>
+                </div>
+                <span id="currentStatus" class="status-chip">idle</span>
+              </div>
+
+              <div id="waveform" class="waveform" aria-hidden="true">
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+                <span></span><span></span><span></span><span></span><span></span>
+              </div>
+
+              <form id="chatForm" class="composer">
+                <label class="sr-only" for="promptInput">Prompt Raven</label>
+                <textarea id="promptInput" rows="3" placeholder="Tell Raven what to say, solve, or remember..."></textarea>
+                <div class="composer-bottom">
+                  <div class="prompt-chips" aria-label="Quick prompts">
+                    <button type="button" data-prompt="Give me a calm two sentence summary.">Summarize</button>
+                    <button type="button" data-prompt="Remind me at 6 PM to stretch and drink water.">Reminder</button>
+                    <button type="button" data-prompt="Note this: keep tone concise and warm.">Note</button>
+                  </div>
+                  <button id="sendButton" class="send-button" type="submit">Send</button>
+                </div>
+              </form>
+            </div>
+          </section>
+
+          <aside class="side-stack">
+            <section class="thermostat-panel glass-surface">
+              <div class="panel-head">
+                <p class="section-kicker">Signal</p>
+                <span id="composerState">Ready</span>
+              </div>
+              <div class="signal-meter">
+                <span id="signalScore">100</span>
+                <small>%</small>
+              </div>
+              <p id="statusDetail" class="quiet-copy">System settled. Waiting for a prompt.</p>
+            </section>
+
+            <section class="meta-panel glass-surface">
+              <div class="metric-row">
+                <span>Model</span>
+                <strong id="modelName">-</strong>
+              </div>
+              <div class="metric-row">
+                <span>Voice</span>
+                <strong id="voiceName">-</strong>
+              </div>
+              <div class="metric-row">
+                <span>Audio</span>
+                <strong id="audioMode">-</strong>
+              </div>
+            </section>
+
+            <section class="metrics-panel glass-surface">
+              <div class="panel-head">
+                <p class="section-kicker">Timing</p>
+                <span>ms</span>
+              </div>
+              <div id="metricsGrid" class="metrics-grid"></div>
+            </section>
+          </aside>
+
+          <section class="transcript-panel glass-surface">
+            <div class="panel-head">
+              <div>
+                <p class="section-kicker">Live transcript</p>
+                <h2>Current turn</h2>
+              </div>
+              <button id="copyButton" class="tool-button" type="button" title="Copy latest response">Copy</button>
+            </div>
+            <div class="transcript-grid">
+              <article>
+                <span>User prompt</span>
+                <p id="currentUserText">No active prompt.</p>
+              </article>
+              <article class="response-card">
+                <span>Raven response</span>
+                <p id="currentAssistantText">Waiting for the next response.</p>
+              </article>
+            </div>
+            <p id="errorText" class="error-text hidden"></p>
+          </section>
+
+          <section class="memory-panel glass-surface">
+            <div class="panel-head memory-head">
+              <div>
+                <p class="section-kicker">Memory space</p>
+                <h2>Notes & reminders</h2>
+              </div>
+              <div class="memory-toggle" role="tablist" aria-label="Memory tabs">
+                <button id="notesTabButton" class="memory-tab is-active" type="button" role="tab" aria-selected="true">Notes</button>
+                <button id="remindersTabButton" class="memory-tab" type="button" role="tab" aria-selected="false">Reminders</button>
+              </div>
+            </div>
+            <div id="memoryContent" class="memory-list"></div>
+          </section>
+        </section>
+      </section>
+    </main>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

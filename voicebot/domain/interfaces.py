@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import AsyncIterator, Protocol, Sequence
+from typing import Any, AsyncIterator, Protocol, Sequence
 
 import numpy as np
 
@@ -41,3 +41,7 @@ class Chunker(Protocol):
     def flush(self) -> str | None:
         ...
 
+
+class RuntimeObserver(Protocol):
+    def record(self, event_type: str, **payload: Any) -> None:
+        ...
